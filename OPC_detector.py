@@ -17,13 +17,13 @@ from mpl_toolkits.mplot3d import axes3d
 # plot mesh
 # calculate volume
 
-# x=0.07um/pixel, y=0.07um/pixel, z=1.0um/pixel
+# x=0.07um/pixel, y=0.07um/pixel, z=1.0um/layer
 
 
 class OPCDetector:
     min_h = 0
     min_s = 15
-    min_v = 0
+    min_v = 12
 
     max_h = 12
     max_s = 255
@@ -38,23 +38,20 @@ class OPCDetector:
     def __init__(self):
         self.img_paths = ...
 
-    # def get_image(self, path: str):
-    #     pass
-
     @staticmethod
-    def doNothing(*args):
+    def do_nothing(*args):
         pass
 
     def find_hsv_values(self, img):
         cv2.namedWindow('Track Bars', cv2.WINDOW_NORMAL)
 
-        cv2.createTrackbar('min_H', 'Track Bars', 0, 255, self.doNothing)
-        cv2.createTrackbar('min_S', 'Track Bars', 0, 255, self.doNothing)
-        cv2.createTrackbar('min_V', 'Track Bars', 0, 255, self.doNothing)
+        cv2.createTrackbar('min_H', 'Track Bars', 0, 255, self.do_nothing)
+        cv2.createTrackbar('min_S', 'Track Bars', 0, 255, self.do_nothing)
+        cv2.createTrackbar('min_V', 'Track Bars', 0, 255, self.do_nothing)
 
-        cv2.createTrackbar('max_H', 'Track Bars', 0, 255, self.doNothing)
-        cv2.createTrackbar('max_S', 'Track Bars', 0, 255, self.doNothing)
-        cv2.createTrackbar('max_V', 'Track Bars', 0, 255, self.doNothing)
+        cv2.createTrackbar('max_H', 'Track Bars', 0, 255, self.do_nothing)
+        cv2.createTrackbar('max_S', 'Track Bars', 0, 255, self.do_nothing)
+        cv2.createTrackbar('max_V', 'Track Bars', 0, 255, self.do_nothing)
 
         img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         cv2.imshow('hsv image', img_hsv)
@@ -90,24 +87,22 @@ class OPCDetector:
         self.max_s = max_s
         self.max_v = max_v
 
-    def get_mask(self, img):
+    def get_mask(self, img, show:bool = False):
         """
         Get a mask based on the HSV limits. Perform image processing to clean up mask
         :param img: raw image
+        :param show: show image or not
         :return:
         """
         img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         img = cv2.inRange(img, (self.min_h, self.min_s, self.min_v), (self.max_h, self.max_s, self.max_v))
 
-        return self.reduce_noise(mask=img)
+        img = self.reduce_noise(mask=img)
 
-    # @staticmethod
-    # def erode(img):
-    #     return cv2.erode(img, kernel=(3, 3), iterations=10)
-    #
-    # @staticmethod
-    # def dilate(img):
-    #     return cv2.dilate(img, kernel=(5, 5), iterations=10)
+        if show:
+            self.show_image(img=img)
+
+        return img
 
     @staticmethod
     def reduce_noise(mask):
@@ -142,17 +137,22 @@ class OPCDetector:
 
         layers = zip(images, masks, self.img_paths)
 
-        for layer in layers:
-            layer_count += 1
+        # convert z scale to match x,y scale
+        z_scale_factor = int(round(self.z_um_per_layer / self.x_um_per_px, 0))
 
+        for layer in layers:
             contours, img_annotated = self.find_contours(mask=layer[1], img=layer[0])
 
-            # todo make layer selection more robust
-            layer = int(layer[2].stem[-2:])
-            for cnt in contours:
-                for index, point in enumerate(cnt):
-                    point_3d = np.append(point[0], layer_count)
-                    point_cloud_data.append(point_3d)
+            # self.show_image(img_annotated)
+
+            # for interpolation in range(z_scale_factor):
+            for interpolation in range(1):
+                for cnt in contours:
+                    for index, point in enumerate(cnt):
+                        point_3d = np.append(point[0], layer_count + interpolation)
+                        point_cloud_data.append(point_3d)
+
+            layer_count += z_scale_factor
 
         point_cloud = pv.PolyData(point_cloud_data)
 
@@ -161,15 +161,15 @@ class OPCDetector:
 
         return point_cloud
 
-    # @staticmethod
-    # def convert_point_cloud_to_mesh(point_cloud, show=True):
-    #     mesh = point_cloud.reconstruct_surface(nbr_sz=10)
-    #     mesh.save('mesh_1.stl')
-    #
-    #     if show:
-    #         mesh.plot(color='orange')
-    #
-    #     return mesh
+    @staticmethod
+    def convert_point_cloud_to_mesh(point_cloud, show=True):
+        mesh = point_cloud.reconstruct_surface(nbr_sz=10)
+        mesh.save('mesh_1.stl')
+
+        if show:
+            mesh.plot(color='orange')
+
+        return mesh
 
     def calculate_layer_volume(self, mask):
         """
@@ -231,8 +231,6 @@ class OPCDetector:
         total_volume = 0
 
         for path in self.img_paths:
-            # layer_count += 1
-
             img = cv2.imread(str(path))
 
             mask = self.get_mask(img)
@@ -245,30 +243,23 @@ class OPCDetector:
             else:
                 mask_of_all_layers |= mask
 
-            # contours, img_annotated = self.find_contours(mask=mask, img=img)
-            #
-            # # todo make layer selection more robust
-            # layer = int(path.stem[-2:])
-            # for cnt in contours:
-            #     for index, point in enumerate(cnt):
-            #         point_3d = np.append(point[0], layer)
-            #         point_cloud_data.append(point_3d)
-
         point_cloud = self.get_point_cloud(images=images, masks=masks, show=True)
 
         self.select_roi(mask_of_all_layers)
         cv2.destroyAllWindows()
 
         mask_of_all_layers &= self.roi
+
         self.show_image(mask_of_all_layers)
 
         for index, mask in enumerate(masks):
             mask &= self.roi
             masks[index] = mask
+            # self.show_image(img=mask)
             total_volume += self.calculate_layer_volume(mask=mask)
 
         point_cloud = self.get_point_cloud(images=images, masks=masks, show=True)
 
-        print(f'Cell volume = {total_volume} um^3')
+        print(f'Cell volume = {int(total_volume)} um^3')
 
         print('done')
