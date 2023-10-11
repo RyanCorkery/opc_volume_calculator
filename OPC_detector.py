@@ -143,6 +143,8 @@ class OPCDetector:
         for layer in layers:
             contours, img_annotated = self.find_contours(mask=layer[1], img=layer[0])
 
+            # self.show_image(img_annotated)
+
             # for interpolation in range(z_scale_factor):
             for interpolation in range(1):
                 for cnt in contours:
