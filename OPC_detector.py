@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import pyvista as pv
 from pathlib import Path
-import PVGeo
+# import PVGeo
 import scipy.spatial as ss
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import axes3d
@@ -31,7 +31,9 @@ class OPCDetector:
 
     x_um_per_px = 0.07
     y_um_per_px = 0.07
-    z_um_per_layer = 1.0
+    z_um_per_layer = 0.7
+
+    shrink_iterations = 3
 
     roi = ...
 
@@ -216,8 +218,21 @@ class OPCDetector:
         self.roi = roi_mask
 
     # https: // stackoverflow.com / questions / 10685654 / reduce - resolution - of - array - through - summation
-    def shrink(self, data, rows, cols):
-        return data.reshape(rows, int(data.shape[0] / rows), cols, int(data.shape[1] / cols)).sum(axis=1).sum(axis=2)
+    def shrink(self, data, iterations: int):
+        """
+        Finds the multiples of the data size.
+        Creates a smaller array by averaging the original data array.
+        :param data:
+        :param iterations: How many times to shrink the data. Occurs in multiples of data size
+        :return:
+        """
+        multiples = [i for i in range(1, data.shape[0] + 1) if data.shape[0] % i == 0]
+        max_iterations = len(multiples) - 1
+        if iterations > max_iterations:
+            iterations = max_iterations
+        rows = multiples[-(iterations + 1)]    # +1 because last element in array is original size
+        cols = rows
+        return data.reshape(rows, int(data.shape[0] / rows), cols, int(data.shape[1] / cols)).mean(axis=3).mean(axis=1).astype(np.uint8)
 
     # https: // stackoverflow.com / questions / 42611342 / representing - voxels - with-matplotlib
     def plot_voxels(self):
@@ -265,6 +280,10 @@ class OPCDetector:
             img = cv2.imread(str(path))
 
             mask = self.get_mask(img)
+
+            mask = self.shrink(mask, iterations=self.shrink_iterations)
+            mask = mask / 255
+            mask = (mask > 0.5).astype(np.uint8)
 
             masks.append(mask)
             images.append(img)
