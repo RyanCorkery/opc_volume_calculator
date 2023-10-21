@@ -215,6 +215,37 @@ class OPCDetector:
 
         self.roi = roi_mask
 
+    # https: // stackoverflow.com / questions / 10685654 / reduce - resolution - of - array - through - summation
+    def shrink(self, data, rows, cols):
+        return data.reshape(rows, int(data.shape[0] / rows), cols, int(data.shape[1] / cols)).sum(axis=1).sum(axis=2)
+
+    # https: // stackoverflow.com / questions / 42611342 / representing - voxels - with-matplotlib
+    def plot_voxels(self):
+        # prepare some coordinates
+        dims = 100
+        x, y, z = np.indices((dims, dims, dims))
+
+        # draw cuboids in the top left and bottom right corners, and a link between
+        # them
+        cube1 = (x < 3) & (y < 3) & (z < 3)
+        cube2 = (x >= (dims-3)) & (y >= (dims-3)) & (z >= (dims-3))
+        link = abs(x - y) + abs(y - z) + abs(z - x) <= 2
+
+        # combine the objects into a single boolean array
+        voxelarray = cube1 | cube2 | link
+
+        # set the colors of each object
+        colors = np.empty(voxelarray.shape, dtype=object)
+        colors[link] = 'red'
+        colors[cube1] = 'blue'
+        colors[cube2] = 'green'
+
+        # and plot everything
+        ax = plt.figure().add_subplot(projection='3d')
+        ax.voxels(voxelarray, facecolors=colors, edgecolor='k')
+
+        plt.show()
+
     def get_volume_from_stack(self, stack_name: str):
         directory = Path.cwd()
         self.img_paths = list(Path(directory, 'OPC_stacks', stack_name).glob('*.tif'))
