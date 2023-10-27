@@ -21,24 +21,26 @@ from mpl_toolkits.mplot3d import axes3d
 
 
 class OPCDetector:
-    min_h = 0
-    min_s = 15
-    min_v = 12
-
-    max_h = 12
-    max_s = 255
-    max_v = 255
-
-    x_um_per_px = 0.07
-    y_um_per_px = 0.07
-    z_um_per_layer = 0.7
-
-    shrink_iterations = 3
-
-    roi = ...
-
     def __init__(self):
         self.img_paths = ...
+        self.original_img_shape = ...
+
+        self.min_h = 0       # 0
+        self.min_s = 1       # 15
+        self.min_v = 1       # 12
+
+        self.max_h = 18       # 12, 25
+        self.max_s = 255       # 255
+        self.max_v = 149       # 255
+
+        self.x_um_per_px = 0.07
+        self.y_um_per_px = 0.07
+        self.z_um_per_layer = 0.1
+
+        self.shrink_iterations = 6
+        self.shrink_include_threshold = 0.2
+
+        self.roi = ...
 
     @staticmethod
     def do_nothing(*args):
@@ -47,13 +49,13 @@ class OPCDetector:
     def find_hsv_values(self, img):
         cv2.namedWindow('Track Bars', cv2.WINDOW_NORMAL)
 
-        cv2.createTrackbar('min_H', 'Track Bars', 0, 255, self.do_nothing)
-        cv2.createTrackbar('min_S', 'Track Bars', 0, 255, self.do_nothing)
-        cv2.createTrackbar('min_V', 'Track Bars', 0, 255, self.do_nothing)
+        cv2.createTrackbar('min_H', 'Track Bars', 0, 40, self.do_nothing)
+        cv2.createTrackbar('min_S', 'Track Bars', 1, 255, self.do_nothing)
+        cv2.createTrackbar('min_V', 'Track Bars', 1, 255, self.do_nothing)
 
-        cv2.createTrackbar('max_H', 'Track Bars', 0, 255, self.do_nothing)
-        cv2.createTrackbar('max_S', 'Track Bars', 0, 255, self.do_nothing)
-        cv2.createTrackbar('max_V', 'Track Bars', 0, 255, self.do_nothing)
+        cv2.createTrackbar('max_H', 'Track Bars', 0, 40, self.do_nothing)   # 180 is max
+        cv2.createTrackbar('max_S', 'Track Bars', 1, 255, self.do_nothing)
+        cv2.createTrackbar('max_V', 'Track Bars', 1, 255, self.do_nothing)
 
         img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         cv2.imshow('hsv image', img_hsv)
@@ -209,6 +211,7 @@ class OPCDetector:
         cv2.destroyAllWindows()
 
     def select_roi(self, img):
+        img = img * 255
         self.show_image(img=img, name='select ROI')
         x, y, w, h = cv2.selectROI(windowName='select ROI', img=img, showCrosshair=False, fromCenter=False)
 
@@ -235,29 +238,51 @@ class OPCDetector:
         return data.reshape(rows, int(data.shape[0] / rows), cols, int(data.shape[1] / cols)).mean(axis=3).mean(axis=1).astype(np.uint8)
 
     # https: // stackoverflow.com / questions / 42611342 / representing - voxels - with-matplotlib
-    def plot_voxels(self):
+    def plot_voxels(self, masks):
+        x_and_y_scale_factor = int(self.original_img_shape[0] / masks[0].shape[0])
         # prepare some coordinates
-        dims = 100
-        x, y, z = np.indices((dims, dims, dims))
+        x_dim = masks[0].shape[0]
+        y_dim = x_dim
+        z_dim = len(masks)
+        x, y, z = np.indices((z_dim+1, x_dim+1, y_dim+1))
+
+        voxelarray = np.zeros((z_dim, x_dim, y_dim))
+
+        for layer, mask in enumerate(masks):
+            voxelarray[layer] = mask
+
+        # data[0][10:50][10:50] = 1
 
         # draw cuboids in the top left and bottom right corners, and a link between
         # them
-        cube1 = (x < 3) & (y < 3) & (z < 3)
-        cube2 = (x >= (dims-3)) & (y >= (dims-3)) & (z >= (dims-3))
-        link = abs(x - y) + abs(y - z) + abs(z - x) <= 2
+        # cube1 = (x < 3) & (y < 3) & (z < 3)
+        # cube2 = (x >= (dims-3)) & (y >= (dims-3)) & (z >= (dims-3))
+        # link = abs(x - y) + abs(y - z) + abs(z - x) <= 2
 
         # combine the objects into a single boolean array
-        voxelarray = cube1 | cube2 | link
+        # voxelarray = cube1 | cube2 | link
 
-        # set the colors of each object
+        #
+        # # set the colors of each object
         colors = np.empty(voxelarray.shape, dtype=object)
-        colors[link] = 'red'
-        colors[cube1] = 'blue'
-        colors[cube2] = 'green'
+        # colors[link] = 'red'
+        # colors[cube1] = 'blue'
+        # colors[cube2] = 'green'
+        colors[voxelarray > 0] = 'red'
 
         # and plot everything
         ax = plt.figure().add_subplot(projection='3d')
-        ax.voxels(voxelarray, facecolors=colors, edgecolor='k')
+        # ax.voxels(voxelarray, facecolors=colors, edgecolor='k')
+        # ax.voxels(voxelarray, facecolors=colors)
+        # ax.voxels(z*self.z_um_per_layer, x, y, voxelarray)
+        ax.voxels(x*self.z_um_per_layer, y*x_and_y_scale_factor*self.x_um_per_px, z*x_and_y_scale_factor*self.y_um_per_px, voxelarray)
+        ax.set_xlabel('z')     # '0 - Dim'
+        ax.set_ylabel('x')     # '1 - Dim'
+        ax.set_zlabel('y')     # '2 - Dim'
+
+        # ax.plot_surface(x, y, z)
+
+        ax.set_aspect('equal')
 
         plt.show()
 
@@ -281,9 +306,11 @@ class OPCDetector:
 
             mask = self.get_mask(img)
 
+            self.original_img_shape = mask.shape
+
             mask = self.shrink(mask, iterations=self.shrink_iterations)
             mask = mask / 255
-            mask = (mask > 0.5).astype(np.uint8)
+            mask = (mask > self.shrink_include_threshold).astype(np.uint8)
 
             masks.append(mask)
             images.append(img)
@@ -293,7 +320,12 @@ class OPCDetector:
             else:
                 mask_of_all_layers |= mask
 
-        point_cloud = self.get_point_cloud(images=images, masks=masks, show=True)
+        self.plot_voxels(masks)
+
+        # point_cloud = self.get_point_cloud(images=images, masks=masks, show=True)
+
+        for mask in masks:
+            self.show_image(mask*255)
 
         self.select_roi(mask_of_all_layers)
         cv2.destroyAllWindows()
