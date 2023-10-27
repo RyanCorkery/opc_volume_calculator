@@ -3,7 +3,7 @@ from OPC_detector import OPCDetector
 
 def main():
     opc_predictor = OPCDetector()
-    volume = opc_predictor.get_volume_from_stack('opcstack_1')
+    volume = opc_predictor.get_volume_from_stack('opc_stack_2')
     print(volume)
 
 
