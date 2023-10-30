@@ -3,7 +3,7 @@ import numpy as np
 import pyvista as pv
 from pathlib import Path
 # import PVGeo
-import scipy.spatial as ss
+# import scipy.spatial as ss
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import axes3d
 
@@ -25,20 +25,29 @@ class OPCDetector:
         self.img_paths = ...
         self.original_img_shape = ...
 
-        self.min_h = 0       # 0
-        self.min_s = 1       # 15
-        self.min_v = 1       # 12
+        # self.min_h = 0       # 0
+        # self.min_s = 1       # 15
+        # self.min_v = 1       # 12
+        #
+        # self.max_h = 18       # 12, 25
+        # self.max_s = 255       # 255
+        # self.max_v = 149       # 255
 
-        self.max_h = 18       # 12, 25
-        self.max_s = 255       # 255
-        self.max_v = 149       # 255
+        self.min_h = 0  # 0
+        self.min_s = 1  # 15
+        self.min_v = 50  # 12
+
+        self.max_h = 40  # 12, 25
+        self.max_s = 255  # 255
+        self.max_v = 255  # 255
 
         self.x_um_per_px = 0.07
         self.y_um_per_px = 0.07
-        self.z_um_per_layer = 0.1
+        self.z_um_per_layer = 0.7
 
-        self.shrink_iterations = 6
-        self.shrink_include_threshold = 0.2
+        self.shrink_iterations = 5
+        self.shrink_include_threshold = 0.25
+        self.shrink_factor = ...
 
         self.roi = ...
 
@@ -53,9 +62,9 @@ class OPCDetector:
         cv2.createTrackbar('min_S', 'Track Bars', 1, 255, self.do_nothing)
         cv2.createTrackbar('min_V', 'Track Bars', 1, 255, self.do_nothing)
 
-        cv2.createTrackbar('max_H', 'Track Bars', 0, 40, self.do_nothing)   # 180 is max
-        cv2.createTrackbar('max_S', 'Track Bars', 1, 255, self.do_nothing)
-        cv2.createTrackbar('max_V', 'Track Bars', 1, 255, self.do_nothing)
+        cv2.createTrackbar('max_H', 'Track Bars', 40, 40, self.do_nothing)   # 180 is max
+        cv2.createTrackbar('max_S', 'Track Bars', 255, 255, self.do_nothing)
+        cv2.createTrackbar('max_V', 'Track Bars', 255, 255, self.do_nothing)
 
         img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         cv2.imshow('hsv image', img_hsv)
@@ -186,7 +195,7 @@ class OPCDetector:
         area_px_to_area_um = self.x_um_per_px * self.y_um_per_px    # um^2 / px^2
         area_um = area_px * area_px_to_area_um  # um^2
 
-        volume = area_um * self.z_um_per_layer  # um^3
+        volume = area_um * self.z_um_per_layer * self.shrink_factor # um^3
 
         return volume
 
@@ -212,13 +221,15 @@ class OPCDetector:
 
     def select_roi(self, img):
         img = img * 255
-        self.show_image(img=img, name='select ROI')
+        # self.show_image(img=img, name='select ROI')
         x, y, w, h = cv2.selectROI(windowName='select ROI', img=img, showCrosshair=False, fromCenter=False)
 
         roi_mask = np.zeros(shape=img.shape, dtype='uint8')
         roi_mask[y:y+h, x:x+w] = 255
 
         self.roi = roi_mask
+
+        cv2.destroyAllWindows()
 
     # https: // stackoverflow.com / questions / 10685654 / reduce - resolution - of - array - through - summation
     def shrink(self, data, iterations: int):
@@ -233,7 +244,8 @@ class OPCDetector:
         max_iterations = len(multiples) - 1
         if iterations > max_iterations:
             iterations = max_iterations
-        rows = multiples[-(iterations + 1)]    # +1 because last element in array is original size
+        self.shrink_factor = multiples[-(iterations + 1)]    # +1 because last element in array is original size
+        rows = self.shrink_factor
         cols = rows
         return data.reshape(rows, int(data.shape[0] / rows), cols, int(data.shape[1] / cols)).mean(axis=3).mean(axis=1).astype(np.uint8)
 
@@ -280,6 +292,8 @@ class OPCDetector:
         ax.set_ylabel('x')     # '1 - Dim'
         ax.set_zlabel('y')     # '2 - Dim'
 
+        ax.view_init(elev=5, azim=5)
+
         # ax.plot_surface(x, y, z)
 
         ax.set_aspect('equal')
@@ -320,27 +334,31 @@ class OPCDetector:
             else:
                 mask_of_all_layers |= mask
 
-        self.plot_voxels(masks)
+        # self.plot_voxels(masks)
 
         # point_cloud = self.get_point_cloud(images=images, masks=masks, show=True)
 
-        for mask in masks:
-            self.show_image(mask*255)
+        # for mask in masks:
+        #     self.show_image(mask*255)
 
         self.select_roi(mask_of_all_layers)
-        cv2.destroyAllWindows()
 
         mask_of_all_layers &= self.roi
 
-        self.show_image(mask_of_all_layers)
+        self.show_image(mask_of_all_layers*255)
+
+        for mask in masks:
+            mask &= self.roi
+
+        # self.plot_voxels(masks)
 
         for index, mask in enumerate(masks):
-            mask &= self.roi
+            # mask &= self.roi
             masks[index] = mask
             # self.show_image(img=mask)
             total_volume += self.calculate_layer_volume(mask=mask)
 
-        point_cloud = self.get_point_cloud(images=images, masks=masks, show=True)
+        # point_cloud = self.get_point_cloud(images=images, masks=masks, show=True)
 
         print(f'Cell volume = {int(total_volume)} um^3')
 
